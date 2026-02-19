@@ -97,8 +97,10 @@ function uriEncode(str: string, encodeSlash = true): string {
 }
 
 function getCanonicalUri(path: string): string {
-    // Path from URL.pathname is already decoded — re-encode per AWS rules (don't encode slashes)
-    return uriEncode(path, false) || '/';
+    // URL.pathname in Bun preserves percent-encoding (e.g. %20 stays as %20)
+    // We must decode first, then re-encode with AWS-compatible encoding to avoid double-encoding
+    const decoded = decodeURIComponent(path);
+    return uriEncode(decoded, false) || '/';
 }
 
 function getCanonicalQueryString(query: Record<string, string>): string {

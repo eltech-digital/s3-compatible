@@ -23,7 +23,7 @@ export const multipartRoutes = new Elysia({ prefix: '' })
 
         const url = new URL(request.url);
         const bucketName = params.bucket;
-        const key = (params as any)['*'];
+        const key = decodeURIComponent((params as any)['*']);
 
         const [bucket] = await db.select().from(buckets)
             .where(eq(buckets.name, bucketName))
@@ -170,7 +170,7 @@ export const multipartRoutes = new Elysia({ prefix: '' })
         if (!uploadId) return;
 
         const bucketName = params.bucket;
-        const key = (params as any)['*'];
+        const key = decodeURIComponent((params as any)['*']);
 
         const [upload] = await db.select().from(multipartUploads)
             .where(eq(multipartUploads.uploadId, uploadId))

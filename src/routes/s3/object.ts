@@ -15,7 +15,7 @@ export const objectRoutes = new Elysia({ prefix: '' })
         if (s3Error) return s3ErrorResponse(s3Error);
 
         const bucketName = params.bucket;
-        const key = (params as any)['*'];
+        const key = decodeURIComponent((params as any)['*']);
         if (!key) return s3ErrorResponse(S3Errors.InvalidArgument('Object key is required'));
 
         // Check if this is an UploadPart request
@@ -122,7 +122,7 @@ export const objectRoutes = new Elysia({ prefix: '' })
         if (s3Error) return s3ErrorResponse(s3Error);
 
         const bucketName = params.bucket;
-        const key = (params as any)['*'];
+        const key = decodeURIComponent((params as any)['*']);
         if (!key) return s3ErrorResponse(S3Errors.InvalidArgument('Object key is required'));
 
         const [bucket] = await db.select().from(buckets)
@@ -186,7 +186,7 @@ export const objectRoutes = new Elysia({ prefix: '' })
         if (s3Error) return s3ErrorResponse(s3Error);
 
         const bucketName = params.bucket;
-        const key = (params as any)['*'];
+        const key = decodeURIComponent((params as any)['*']);
         if (!key) return s3ErrorResponse(S3Errors.InvalidArgument('Object key is required'));
 
         const [bucket] = await db.select().from(buckets)
@@ -225,7 +225,7 @@ export const objectRoutes = new Elysia({ prefix: '' })
         if (s3Error) return s3ErrorResponse(s3Error);
 
         const bucketName = params.bucket;
-        const key = (params as any)['*'];
+        const key = decodeURIComponent((params as any)['*']);
         if (!key) return s3ErrorResponse(S3Errors.InvalidArgument('Object key is required'));
 
         const [bucket] = await db.select().from(buckets)

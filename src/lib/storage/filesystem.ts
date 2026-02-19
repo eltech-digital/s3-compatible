@@ -35,7 +35,32 @@ export const storage = {
 
     async writeObject(bucket: string, key: string, data: Buffer | Uint8Array): Promise<{ size: number; storagePath: string }> {
         const filePath = getObjectPath(bucket, key);
-        await ensureDir(dirname(filePath));
+
+        // If key ends with '/', this is a folder marker — create directory instead of file
+        if (key.endsWith('/')) {
+            await ensureDir(filePath);
+            return { size: 0, storagePath: filePath };
+        }
+
+        // Before creating parent directories, check if any path segment exists as a file
+        // (this happens when a folder marker was previously created as a zero-byte file)
+        const parentDir = dirname(filePath);
+        const bucketRoot = getBucketPath(bucket);
+        const relPath = parentDir.slice(bucketRoot.length);
+        const segments = relPath.split(/[\\/]/).filter(Boolean);
+        let currentPath = bucketRoot;
+        for (const seg of segments) {
+            currentPath = join(currentPath, seg);
+            if (existsSync(currentPath)) {
+                const s = await stat(currentPath);
+                if (s.isFile()) {
+                    // Remove the file so we can create a directory in its place
+                    await unlink(currentPath);
+                }
+            }
+        }
+
+        await ensureDir(parentDir);
         await writeFile(filePath, data);
         return { size: data.length, storagePath: filePath };
     },
