@@ -216,6 +216,68 @@ export function verifyPresignedUrl(params: {
     return expectedSignature === signature;
 }
 
+export function verifyPresignedUrlV2(params: {
+    method: string;
+    path: string;
+    query: Record<string, string>;
+    headers: Record<string, string>;
+    secretAccessKey: string;
+}): boolean {
+    const { method, path, query, headers, secretAccessKey } = params;
+
+    const expires = query['Expires'];
+    const signature = query['Signature'];
+    if (!expires || !signature) return false;
+
+    // Check expiry
+    const expiryTime = parseInt(expires) * 1000;
+    if (Date.now() > expiryTime) return false;
+
+    // Build canonicalized AMZ headers
+    const amzHeaders: [string, string][] = [];
+    for (const [key, value] of Object.entries(headers)) {
+        if (key.toLowerCase().startsWith('x-amz-')) {
+            amzHeaders.push([key.toLowerCase(), value.trim()]);
+        }
+    }
+    amzHeaders.sort((a, b) => a[0].localeCompare(b[0]));
+    const canonicalizedAmzHeaders = amzHeaders.length > 0
+        ? amzHeaders.map(([k, v]) => `${k}:${v}`).join('\n') + '\n'
+        : '';
+
+    // Build canonicalized resource (path + sub-resources)
+    const decoded = decodeURIComponent(path);
+    const subResources = ['acl', 'lifecycle', 'location', 'logging', 'notification',
+        'partNumber', 'policy', 'requestPayment', 'torrent', 'uploadId',
+        'uploads', 'versionId', 'versioning', 'versions', 'website',
+        'delete', 'cors', 'tagging', 'restore', 'replication'];
+    const queryParts: string[] = [];
+    for (const key of Object.keys(query).sort()) {
+        if (subResources.includes(key)) {
+            queryParts.push(query[key] ? `${key}=${query[key]}` : key);
+        }
+    }
+    const canonicalizedResource = decoded + (queryParts.length > 0 ? '?' + queryParts.join('&') : '');
+
+    // String to sign for V2
+    const contentMd5 = headers['content-md5'] || '';
+    const contentType = headers['content-type'] || '';
+    const stringToSign = [
+        method.toUpperCase(),
+        contentMd5,
+        contentType,
+        expires,
+        canonicalizedAmzHeaders + canonicalizedResource,
+    ].join('\n');
+
+    // HMAC-SHA1
+    const expectedSignature = createHmac('sha1', secretAccessKey)
+        .update(stringToSign, 'utf8')
+        .digest('base64');
+
+    return expectedSignature === signature;
+}
+
 export function computeETag(data: Buffer | Uint8Array): string {
     return createHash('md5').update(data).digest('hex');
 }
