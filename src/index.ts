@@ -11,7 +11,8 @@ import { adminBucketsRoutes } from './routes/admin/buckets';
 
 const app = new Elysia()
     .use(cors({
-        origin: true,
+        origin: (process.env.CORS_ORIGIN || 'http://localhost:5173')
+            .split(',').map(s => s.trim()).filter(Boolean),
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'],
         allowedHeaders: ['*'],
         exposeHeaders: ['ETag', 'x-amz-request-id', 'x-amz-id-2', 'Content-Range', 'Accept-Ranges'],

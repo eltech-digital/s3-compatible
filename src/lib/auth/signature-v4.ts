@@ -1,4 +1,4 @@
-import { createHmac, createHash } from 'node:crypto';
+import { createHmac, createHash, timingSafeEqual } from 'node:crypto';
 
 interface SignatureV4Params {
     method: string;
@@ -24,6 +24,11 @@ function hmacSHA256(key: Buffer | string, data: string): Buffer {
 
 function sha256(data: Buffer | Uint8Array | string): string {
     return createHash('sha256').update(data).digest('hex');
+}
+
+function safeCompare(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
 }
 
 export function parseAuthorizationHeader(authHeader: string): ParsedAuth | null {
@@ -155,7 +160,7 @@ export function verifySignature(params: SignatureV4Params): boolean {
     const signingKey = getSigningKey(secretAccessKey, date, region, service);
     const expectedSignature = hmacSHA256(signingKey, stringToSign).toString('hex');
 
-    return expectedSignature === signature;
+    return safeCompare(expectedSignature, signature);
 }
 
 export function verifyPresignedUrl(params: {
@@ -176,6 +181,7 @@ export function verifyPresignedUrl(params: {
     const [, dateStamp, region, service] = credential.split('/');
     const signedHeaders = (query['X-Amz-SignedHeaders'] || '').split(';');
     const signature = query['X-Amz-Signature'];
+    if (!signature) return false;
     const datetime = query['X-Amz-Date'] || '';
 
     // Check expiry
@@ -213,7 +219,7 @@ export function verifyPresignedUrl(params: {
     const signingKey = getSigningKey(secretAccessKey, dateStamp!, region!, service!);
     const expectedSignature = hmacSHA256(signingKey, stringToSign).toString('hex');
 
-    return expectedSignature === signature;
+    return safeCompare(expectedSignature, signature);
 }
 
 export function verifyPresignedUrlV2(params: {
@@ -275,7 +281,7 @@ export function verifyPresignedUrlV2(params: {
         .update(stringToSign, 'utf8')
         .digest('base64');
 
-    return expectedSignature === signature;
+    return safeCompare(expectedSignature, signature);
 }
 
 export function computeETag(data: Buffer | Uint8Array): string {

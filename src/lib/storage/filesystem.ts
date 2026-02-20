@@ -1,24 +1,36 @@
 import { mkdir, writeFile, readFile, unlink, stat, readdir, rename, rm } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { createReadStream, existsSync } from 'node:fs';
 import { env } from '../../config/env';
 
-const basePath = env.storagePath;
+const basePath = resolve(env.storagePath);
 
 async function ensureDir(dirPath: string): Promise<void> {
     await mkdir(dirPath, { recursive: true });
 }
 
+function assertWithinBase(resolvedPath: string): void {
+    if (!resolvedPath.startsWith(basePath)) {
+        throw new Error('Access denied: path traversal detected');
+    }
+}
+
 function getObjectPath(bucket: string, key: string): string {
-    return join(basePath, bucket, key);
+    const resolved = resolve(join(basePath, bucket, key));
+    assertWithinBase(resolved);
+    return resolved;
 }
 
 function getBucketPath(bucket: string): string {
-    return join(basePath, bucket);
+    const resolved = resolve(join(basePath, bucket));
+    assertWithinBase(resolved);
+    return resolved;
 }
 
 function getMultipartPath(uploadId: string, partNumber: number): string {
-    return join(basePath, '.multipart', uploadId, `part-${partNumber}`);
+    const resolved = resolve(join(basePath, '.multipart', uploadId, `part-${partNumber}`));
+    assertWithinBase(resolved);
+    return resolved;
 }
 
 export const storage = {
