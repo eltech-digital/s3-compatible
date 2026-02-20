@@ -45,28 +45,46 @@ export const bucketRoutes = new Elysia({ prefix: '' })
             },
         });
     })
-    // CreateBucket
-    .put('/:bucket', async ({ params, s3Error, ownerId }) => {
+    // PUT /:bucket — CreateBucket or PutBucketAcl
+    .put('/:bucket', async ({ params, request, s3Error, ownerId }) => {
         if (s3Error) return s3ErrorResponse(s3Error);
         const bucketName = params.bucket;
+        const url = new URL(request.url);
 
-        // Validate bucket name (S3 rules)
+        // PutBucketAcl — PUT /:bucket?acl
+        if (url.searchParams.has('acl')) {
+            const [bucket] = await db.select().from(buckets)
+                .where(eq(buckets.name, bucketName))
+                .limit(1);
+            if (!bucket) return s3ErrorResponse(S3Errors.NoSuchBucket(bucketName));
+
+            const aclHeader = request.headers.get('x-amz-acl') || 'private';
+            const validAcls = ['private', 'public-read'];
+            if (!validAcls.includes(aclHeader)) {
+                return s3ErrorResponse(S3Errors.InvalidArgument('Invalid ACL value. Must be private or public-read.'));
+            }
+
+            await db.update(buckets).set({ acl: aclHeader }).where(eq(buckets.id, bucket.id));
+            return new Response(null, { status: 200 });
+        }
+
+        // CreateBucket
         if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucketName)) {
             return s3ErrorResponse(S3Errors.InvalidBucketName(bucketName));
         }
 
-        // Check if exists
         const [existing] = await db.select().from(buckets)
             .where(eq(buckets.name, bucketName))
             .limit(1);
 
         if (existing) return s3ErrorResponse(S3Errors.BucketAlreadyExists(bucketName));
 
-        // Create in DB and filesystem
+        const acl = request.headers.get('x-amz-acl') || 'private';
         await db.insert(buckets).values({
             name: bucketName,
             ownerId,
             region: env.s3Region,
+            acl: ['private', 'public-read'].includes(acl) ? acl : 'private',
         });
         await storage.createBucket(bucketName);
 
@@ -132,7 +150,10 @@ export const bucketRoutes = new Elysia({ prefix: '' })
 
         // GetBucketAcl — GET /:bucket?acl
         if (url.searchParams.has('acl')) {
-            const body = `<?xml version="1.0" encoding="UTF-8"?><AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>${ownerId}</ID><DisplayName>owner</DisplayName></Owner><AccessControlList><Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CanonicalUser"><ID>${ownerId}</ID><DisplayName>owner</DisplayName></Grantee><Permission>FULL_CONTROL</Permission></Grant></AccessControlList></AccessControlPolicy>`;
+            const publicReadGrant = bucket.acl === 'public-read'
+                ? '<Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="Group"><URI>http://acs.amazonaws.com/groups/global/AllUsers</URI></Grantee><Permission>READ</Permission></Grant>'
+                : '';
+            const body = `<?xml version="1.0" encoding="UTF-8"?><AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>${bucket.ownerId}</ID><DisplayName>owner</DisplayName></Owner><AccessControlList><Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CanonicalUser"><ID>${bucket.ownerId}</ID><DisplayName>owner</DisplayName></Grantee><Permission>FULL_CONTROL</Permission></Grant>${publicReadGrant}</AccessControlList></AccessControlPolicy>`;
             return new Response(body, {
                 status: 200,
                 headers: { 'Content-Type': 'application/xml' },

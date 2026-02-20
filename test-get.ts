@@ -1,111 +1,76 @@
-import { createHmac, createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 
-const AK = 'AK98F89BAA9C1AF24DD8';
-const SK = 'J_0CIzeVx_Fhx7Lk4mBpeJOfHJgtBB0CBXZ2Gbfl'; // need the actual SK for this key
+const AK = 'AK1842E865411256698A';
+const SK = 'tOKKSI3HOaf7txs1fn1Ak8pMUcJ3SyTcR9-SZgZm';
 
-// First, let's check if ListObjectsV2 returns proper XML
-console.log('=== ListObjectsV2 Response Check ===');
-const listUrl = 'http://localhost:3000/new-bucket-adaac36d?delimiter=%2F&max-keys=1000&prefix=';
-
-// Use the other key that we know works
-const AK2 = 'AK1842E865411256698A';
-const SK2 = 'tOKKSI3HOaf7txs1fn1Ak8pMUcJ3SyTcR9-SZgZm';
-
-// V2 presigned for list
-const exp = Math.floor(Date.now() / 1000) + 300;
-const sts = `GET\n\n\n${exp}\n/new-bucket-adaac36d`;
-const sig = encodeURIComponent(createHmac('sha1', SK2).update(sts, 'utf8').digest('base64'));
-const url = `http://localhost:3000/new-bucket-adaac36d?AWSAccessKeyId=${AK2}&Expires=${exp}&Signature=${sig}&delimiter=%2F&max-keys=1000&prefix=`;
-
-const r = await fetch(url);
-const body = await r.text();
-console.log('Status:', r.status);
-console.log('Content-Type:', r.headers.get('content-type'));
-console.log('Body:\n', body);
-
-// Check for proper XML structure
-if (body.includes('<?xml')) {
-    console.log('\n✅ Response starts with XML declaration');
-} else {
-    console.log('\n❌ Response does NOT start with XML declaration');
+// Helper: V2 presigned GET
+function signedGet(path: string) {
+    const exp = Math.floor(Date.now() / 1000) + 300;
+    const sts = `GET\n\n\n${exp}\n${path}`;
+    const sig = encodeURIComponent(createHmac('sha1', SK).update(sts, 'utf8').digest('base64'));
+    return `http://localhost:3000${path}?AWSAccessKeyId=${AK}&Expires=${exp}&Signature=${sig}`;
 }
 
-// Now generate a V4 presigned URL manually and test
-console.log('\n\n=== V4 Presigned URL Test ===');
+// 1. Set test-upload bucket to public-read via admin API
+console.log('=== Set bucket to public-read ===');
+const patchRes = await fetch('http://localhost:3000/admin/buckets/test-upload', {
+    method: 'PATCH',
+    headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(await (await fetch('http://localhost:3000/admin/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'admin', password: 'admin123' }),
+        })).json() as any).token}`,
+    },
+    body: JSON.stringify({ acl: 'public-read' }),
+});
+console.log('PATCH Status:', patchRes.status);
+console.log('PATCH Body:', await patchRes.json());
 
-function hmacSHA256(key: Buffer | string, data: string): Buffer {
-    return createHmac('sha256', key).update(data, 'utf8').digest();
-}
+// 2. Test anonymous GET (no auth) on public-read bucket
+console.log('\n=== GET without auth (public-read) ===');
+const r1 = await fetch('http://localhost:3000/test-upload/get-test.txt');
+console.log('Status:', r1.status);
+console.log('Content-Type:', r1.headers.get('content-type'));
+const body1 = await r1.text();
+console.log('Body:', JSON.stringify(body1.substring(0, 80)));
+console.log('Result:', r1.status === 200 ? '✅ PASS (anonymous GET works on public bucket)' : '❌ FAIL');
 
-function sha256(data: string): string {
-    return createHash('sha256').update(data).digest('hex');
-}
-
-function uriEncode(str: string, encodeSlash = true): string {
-    let encoded = '';
-    for (const ch of str) {
-        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch === '_' || ch === '-' || ch === '~' || ch === '.') {
-            encoded += ch;
-        } else if (ch === '/' && !encodeSlash) {
-            encoded += '/';
-        } else {
-            const bytes = Buffer.from(ch, 'utf8');
-            for (const byte of bytes) {
-                encoded += `%${byte.toString(16).toUpperCase()}`;
-            }
-        }
-    }
-    return encoded;
-}
-
-// Generate V4 presigned URL
-const host = 'localhost:3000';
-const path = '/test-upload/get-test.txt';
-const region = 'us-east-1';
-const service = 's3';
-const now = new Date();
-const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, '');
-const datetime = dateStamp + 'T' + now.toISOString().slice(11, 19).replace(/:/g, '') + 'Z';
-const expiresSeconds = '300';
-const credential = `${AK2}/${dateStamp}/${region}/${service}/aws4_request`;
-
-const canonicalUri = uriEncode(path, false);
-const canonicalQueryParts = [
-    `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
-    `X-Amz-Credential=${uriEncode(credential)}`,
-    `X-Amz-Date=${datetime}`,
-    `X-Amz-Expires=${expiresSeconds}`,
-    `X-Amz-SignedHeaders=host`,
-].sort();
-const canonicalQueryString = canonicalQueryParts.join('&');
-
-const canonicalHeaders = `host:${host}`;
-const canonicalRequest = [
-    'GET',
-    canonicalUri,
-    canonicalQueryString,
-    canonicalHeaders,
-    '',
-    'host',
-    'UNSIGNED-PAYLOAD',
-].join('\n');
-
-console.log('Canonical Request:\n', canonicalRequest);
-
-const scope = `${dateStamp}/${region}/${service}/aws4_request`;
-const stringToSign = ['AWS4-HMAC-SHA256', datetime, scope, sha256(canonicalRequest)].join('\n');
-
-const kDate = hmacSHA256(`AWS4${SK2}`, dateStamp);
-const kRegion = hmacSHA256(kDate, region);
-const kService = hmacSHA256(kRegion, service);
-const kSigning = hmacSHA256(kService, 'aws4_request');
-const signature = hmacSHA256(kSigning, stringToSign).toString('hex');
-
-const presignedUrl = `http://${host}${path}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
-console.log('\nPresigned URL:', presignedUrl);
-
-const r2 = await fetch(presignedUrl);
-const body2 = await r2.text();
+// 3. Test anonymous PUT (should still fail)
+console.log('\n=== PUT without auth (public-read bucket, should fail) ===');
+const r2 = await fetch('http://localhost:3000/test-upload/test-write.txt', {
+    method: 'PUT',
+    body: 'should fail',
+});
 console.log('Status:', r2.status);
-console.log('Body:', JSON.stringify(body2.substring(0, 100)));
-console.log('Match:', body2.includes('Hello S3') ? '✅ PASS' : '❌ FAIL');
+console.log('Result:', r2.status >= 400 ? '✅ PASS (anonymous PUT rejected)' : '❌ FAIL');
+
+// 4. Set back to private
+console.log('\n=== Set bucket to private ===');
+const token = ((await (await fetch('http://localhost:3000/admin/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'admin123' }),
+})).json()) as any).token;
+
+await fetch('http://localhost:3000/admin/buckets/test-upload', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ acl: 'private' }),
+});
+
+// 5. Test anonymous GET on private bucket (should fail)
+console.log('\n=== GET without auth (private bucket, should fail) ===');
+const r3 = await fetch('http://localhost:3000/test-upload/get-test.txt');
+console.log('Status:', r3.status);
+console.log('Result:', r3.status >= 400 ? '✅ PASS (anonymous GET rejected on private bucket)' : '❌ FAIL');
+
+// 6. Test authenticated GET on private bucket (should work)
+console.log('\n=== GET with auth (private bucket) ===');
+const url = signedGet('/test-upload/get-test.txt');
+const r4 = await fetch(url);
+console.log('Status:', r4.status);
+const body4 = await r4.text();
+console.log('Body:', JSON.stringify(body4.substring(0, 80)));
+console.log('Result:', r4.status === 200 ? '✅ PASS (auth GET works on private bucket)' : '❌ FAIL');

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Database, Plus, Trash2 } from 'lucide-react';
+import { Database, Plus, Trash2, Lock, Globe } from 'lucide-react';
 import { adminApi } from '../lib/api';
 
 interface BucketInfo {
     id: number;
     name: string;
     region: string;
+    acl: string;
     createdAt: string;
     objectCount: number;
     totalSize: number;
@@ -36,6 +37,7 @@ export default function BucketsPage() {
     const [selectedKeyId, setSelectedKeyId] = useState<number | ''>('');
     const [availableKeys, setAvailableKeys] = useState<AccessKeyOption[]>([]);
     const [creating, setCreating] = useState(false);
+    const [newBucketAcl, setNewBucketAcl] = useState('private');
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
     const navigate = useNavigate();
 
@@ -68,10 +70,11 @@ export default function BucketsPage() {
         if (!newBucketName.trim() || !selectedKeyId) return;
         setCreating(true);
         try {
-            await adminApi.createBucket(newBucketName.trim(), newBucketRegion, selectedKeyId as number);
+            await adminApi.createBucket(newBucketName.trim(), newBucketRegion, selectedKeyId as number, newBucketAcl);
             setShowCreate(false);
             setNewBucketName('');
             setNewBucketRegion('us-east-1');
+            setNewBucketAcl('private');
             setSelectedKeyId('');
             fetchBuckets();
             showToast('Bucket created successfully');
@@ -80,6 +83,18 @@ export default function BucketsPage() {
             showToast(msg, 'error');
         } finally {
             setCreating(false);
+        }
+    };
+
+    const handleToggleAcl = async (name: string, currentAcl: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const newAcl = currentAcl === 'public-read' ? 'private' : 'public-read';
+        try {
+            await adminApi.updateBucketAcl(name, newAcl);
+            fetchBuckets();
+            showToast(`Bucket "${name}" set to ${newAcl}`);
+        } catch (err: any) {
+            showToast(err.response?.data?.error || 'Failed to update ACL', 'error');
         }
     };
 
@@ -138,6 +153,15 @@ export default function BucketsPage() {
                                 e.currentTarget.style.transform = 'translateY(0)';
                             }}
                         >
+                            {/* ACL toggle button */}
+                            <button
+                                className="btn-icon"
+                                title={b.acl === 'public-read' ? 'Public (click to make private)' : 'Private (click to make public)'}
+                                onClick={(e) => handleToggleAcl(b.name, b.acl, e)}
+                                style={{ position: 'absolute', top: 14, right: 44 }}
+                            >
+                                {b.acl === 'public-read' ? <Globe size={14} /> : <Lock size={14} />}
+                            </button>
                             {/* Delete button */}
                             <button
                                 className="btn-icon danger"
@@ -152,7 +176,19 @@ export default function BucketsPage() {
                                 <div className="stat-icon accent"><Database size={18} /></div>
                                 <div>
                                     <div style={{ fontWeight: 600, fontSize: 15 }}>{b.name}</div>
-                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{b.region}</div>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        {b.region}
+                                        <span style={{
+                                            fontSize: 10,
+                                            padding: '1px 6px',
+                                            borderRadius: 4,
+                                            background: b.acl === 'public-read' ? 'var(--success-subtle, #d4edda)' : 'var(--bg-secondary)',
+                                            color: b.acl === 'public-read' ? 'var(--success, #28a745)' : 'var(--text-muted)',
+                                            fontWeight: 500,
+                                        }}>
+                                            {b.acl === 'public-read' ? 'Public' : 'Private'}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -214,6 +250,13 @@ export default function BucketsPage() {
                                 <option value="us-west-2">us-west-2</option>
                                 <option value="eu-west-1">eu-west-1</option>
                                 <option value="ap-southeast-1">ap-southeast-1</option>
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label>Access Control</label>
+                            <select value={newBucketAcl} onChange={(e) => setNewBucketAcl(e.target.value)}>
+                                <option value="private">🔒 Private — Authentication required</option>
+                                <option value="public-read">🌐 Public Read — Anyone can read objects</option>
                             </select>
                         </div>
                         <div className="modal-actions">

@@ -16,7 +16,7 @@ export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
         }
     })
     .post('/', async ({ body }) => {
-        const { name, region, ownerId } = body as { name: string; region?: string; ownerId?: number };
+        const { name, region, ownerId, acl } = body as { name: string; region?: string; ownerId?: number; acl?: string };
 
         if (!name || !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(name)) {
             return new Response(JSON.stringify({ error: 'Invalid bucket name. Use 3-63 lowercase alphanumeric characters, dots, or hyphens.' }), {
@@ -51,6 +51,7 @@ export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
             name,
             ownerId: resolvedOwnerId,
             region: region || 'us-east-1',
+            acl: acl === 'public-read' ? 'public-read' : 'private',
         });
 
         await storage.createBucket(name);
@@ -90,12 +91,32 @@ export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
                 id: b.id,
                 name: b.name,
                 region: b.region,
+                acl: b.acl,
                 createdAt: b.createdAt,
                 objectCount: objStats?.count || 0,
                 totalSize: Number(objStats?.totalSize || 0),
             });
         }
         return { buckets: result };
+    })
+    .patch('/:bucket', async ({ params, body }) => {
+        const bucketName = params.bucket;
+        const { acl } = body as { acl?: string };
+
+        const [bucket] = await db.select().from(buckets).where(eq(buckets.name, bucketName)).limit(1);
+        if (!bucket) {
+            return new Response(JSON.stringify({ error: 'Bucket not found' }), {
+                status: 404,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        if (acl && ['private', 'public-read'].includes(acl)) {
+            await db.update(buckets).set({ acl }).where(eq(buckets.id, bucket.id));
+        }
+
+        const [updated] = await db.select().from(buckets).where(eq(buckets.id, bucket.id)).limit(1);
+        return { bucket: updated, message: 'Bucket updated successfully' };
     })
     .get('/:bucket/objects', async ({ params, query }) => {
         const bucketName = params.bucket;

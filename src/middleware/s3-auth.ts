@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia';
 import { db } from '../db/connection';
-import { accessKeys } from '../db/schema';
+import { accessKeys, buckets } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { parseAuthorizationHeader, verifySignature, verifyPresignedUrl, verifyPresignedUrlV2 } from '../lib/auth/signature-v4';
 import { S3Errors, s3ErrorResponse } from '../lib/errors';
@@ -89,6 +89,21 @@ export const s3Auth = new Elysia({ name: 's3-auth' })
         // Check Authorization header
         const authHeader = headers['authorization'];
         if (!authHeader) {
+            // No auth — check if this is a read request on a public-read bucket
+            if (request.method === 'GET' || request.method === 'HEAD') {
+                const pathParts = url.pathname.split('/').filter(Boolean);
+                if (pathParts.length >= 1) {
+                    const bucketName = pathParts[0];
+                    const [bucket] = await db.select({ acl: buckets.acl })
+                        .from(buckets)
+                        .where(eq(buckets.name, bucketName!))
+                        .limit(1);
+
+                    if (bucket?.acl === 'public-read') {
+                        return { s3Error: null, accessKeyId: 'anonymous', ownerId: 0, bodyBuffer };
+                    }
+                }
+            }
             return { s3Error: S3Errors.MissingSecurityHeader(), accessKeyId: '', ownerId: 0, bodyBuffer };
         }
 
