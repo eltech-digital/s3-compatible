@@ -160,44 +160,4 @@ export const multipartRoutes = new Elysia({ prefix: '' })
         await db.delete(multipartUploads).where(eq(multipartUploads.uploadId, uploadId));
 
         return new Response(null, { status: 204 });
-    })
-    // ListParts — GET /:bucket/*?uploadId=X
-    .get('/:bucket/*', async ({ params, request, s3Error, ownerId }) => {
-        if (s3Error) return s3ErrorResponse(s3Error);
-
-        const url = new URL(request.url);
-        const uploadId = url.searchParams.get('uploadId');
-        if (!uploadId) return;
-
-        const bucketName = params.bucket;
-        const key = decodeURIComponent((params as any)['*']);
-
-        const [upload] = await db.select().from(multipartUploads)
-            .where(eq(multipartUploads.uploadId, uploadId))
-            .limit(1);
-
-        if (!upload) return s3ErrorResponse(S3Errors.NoSuchUpload(uploadId));
-
-        const parts = await db.select().from(multipartParts)
-            .where(eq(multipartParts.uploadId, uploadId))
-            .orderBy(multipartParts.partNumber);
-
-        const body = xml.listPartsResponse({
-            bucket: bucketName,
-            key,
-            uploadId,
-            parts: parts.map((p) => ({
-                partNumber: p.partNumber,
-                lastModified: p.createdAt,
-                etag: p.etag,
-                size: p.size,
-            })),
-            isTruncated: false,
-            maxParts: 1000,
-        });
-
-        return new Response(body, {
-            status: 200,
-            headers: { 'Content-Type': 'application/xml' },
-        });
     });

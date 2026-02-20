@@ -65,7 +65,7 @@ export const storage = {
         return { size: data.length, storagePath: filePath };
     },
 
-    async readObject(bucket: string, key: string, range?: { start: number; end: number }): Promise<{ stream: ReadableStream; size: number }> {
+    async readObject(bucket: string, key: string, range?: { start: number; end: number }): Promise<{ body: Uint8Array | ReadableStream; size: number }> {
         const filePath = getObjectPath(bucket, key);
         const fileStat = await stat(filePath);
 
@@ -81,17 +81,11 @@ export const storage = {
                     nodeStream.destroy();
                 },
             });
-            return { stream, size: range.end - range.start + 1 };
+            return { body: stream, size: range.end - range.start + 1 };
         }
 
         const data = await readFile(filePath);
-        const stream = new ReadableStream({
-            start(controller) {
-                controller.enqueue(new Uint8Array(data));
-                controller.close();
-            },
-        });
-        return { stream, size: fileStat.size };
+        return { body: new Uint8Array(data), size: fileStat.size };
     },
 
     async readObjectAsBuffer(bucket: string, key: string): Promise<Buffer> {
