@@ -96,7 +96,12 @@ export const storage = {
     async deleteObject(bucket: string, key: string): Promise<void> {
         const filePath = getObjectPath(bucket, key);
         if (existsSync(filePath)) {
-            await unlink(filePath);
+            const s = await stat(filePath);
+            if (s.isDirectory()) {
+                await rm(filePath, { recursive: true, force: true });
+            } else {
+                await unlink(filePath);
+            }
         }
     },
 
