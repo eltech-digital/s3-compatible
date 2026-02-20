@@ -12,7 +12,7 @@ import { adminBucketsRoutes } from './routes/admin/buckets';
 const app = new Elysia()
     .use(cors({
         origin: true,
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS'],
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'],
         allowedHeaders: ['*'],
         exposeHeaders: ['ETag', 'x-amz-request-id', 'x-amz-id-2', 'Content-Range', 'Accept-Ranges'],
     }))

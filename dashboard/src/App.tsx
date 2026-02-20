@@ -16,8 +16,9 @@ function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <div className="sidebar-logo">
-          <HardDrive size={22} />
+          <HardDrive size={24} />
           <span>S3 Dashboard</span>
+          <span className="badge badge-accent" style={{ fontSize: 10, padding: '1px 6px', marginLeft: 4 }}>ADMIN</span>
         </div>
       </div>
       <nav className="sidebar-nav">

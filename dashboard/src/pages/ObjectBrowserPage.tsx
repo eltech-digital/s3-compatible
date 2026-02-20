@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { File, Folder, Trash2, Download, Search, ChevronRight, ArrowLeft, FileText } from 'lucide-react';
+import { Folder, Trash2, Search, ChevronRight, ArrowLeft, FileText } from 'lucide-react';
 import { adminApi } from '../lib/api';
 
 interface ObjectInfo {
@@ -154,39 +154,80 @@ export default function ObjectBrowserPage() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {objects.map((obj) => {
-                                        const shortKey = prefix ? obj.key.slice(prefix.length) : obj.key;
-                                        const isFolder = shortKey.includes('/');
-                                        const folderName = isFolder ? shortKey.split('/')[0] + '/' : null;
-                                        return (
-                                            <tr key={obj.id}>
-                                                <td style={{ width: 40, textAlign: 'center' }}>
-                                                    {isFolder ? <Folder size={16} color="var(--accent)" /> : <span>{getFileIcon(obj.contentType)}</span>}
-                                                </td>
-                                                <td>
-                                                    {isFolder && folderName ? (
+                                    {(() => {
+                                        // Deduplicate: group objects into unique folders and files
+                                        const folders = new Map<string, { count: number; totalSize: number }>();
+                                        const files: ObjectInfo[] = [];
+
+                                        for (const obj of objects) {
+                                            const shortKey = prefix ? obj.key.slice(prefix.length) : obj.key;
+                                            if (shortKey.includes('/')) {
+                                                const folderName = shortKey.split('/')[0]! + '/';
+                                                const existing = folders.get(folderName);
+                                                if (existing) {
+                                                    existing.count++;
+                                                    existing.totalSize += obj.size;
+                                                } else {
+                                                    folders.set(folderName, { count: 1, totalSize: obj.size });
+                                                }
+                                            } else {
+                                                files.push(obj);
+                                            }
+                                        }
+
+                                        const rows: React.JSX.Element[] = [];
+
+                                        // Render folders first
+                                        folders.forEach((info, folderName) => {
+                                            rows.push(
+                                                <tr key={`folder-${folderName}`}>
+                                                    <td style={{ width: 40, textAlign: 'center' }}>
+                                                        <Folder size={16} color="var(--accent)" />
+                                                    </td>
+                                                    <td>
                                                         <a href="#" onClick={(e) => { e.preventDefault(); navigateToPrefix(prefix + folderName); }} style={{ fontWeight: 500 }}>
                                                             {folderName}
                                                         </a>
-                                                    ) : (
+                                                    </td>
+                                                    <td className="file-size">{formatBytes(info.totalSize)}</td>
+                                                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                                                        {info.count} object{info.count !== 1 ? 's' : ''}
+                                                    </td>
+                                                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>—</td>
+                                                    <td></td>
+                                                </tr>
+                                            );
+                                        });
+
+                                        // Render files
+                                        for (const obj of files) {
+                                            const shortKey = prefix ? obj.key.slice(prefix.length) : obj.key;
+                                            rows.push(
+                                                <tr key={obj.id}>
+                                                    <td style={{ width: 40, textAlign: 'center' }}>
+                                                        <span>{getFileIcon(obj.contentType)}</span>
+                                                    </td>
+                                                    <td>
                                                         <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{shortKey}</span>
-                                                    )}
-                                                </td>
-                                                <td className="file-size">{formatBytes(obj.size)}</td>
-                                                <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{obj.contentType}</td>
-                                                <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                                                    {new Date(obj.lastModified).toLocaleString()}
-                                                </td>
-                                                <td>
-                                                    <div style={{ display: 'flex', gap: 6 }}>
-                                                        <button className="btn-icon danger" title="Delete" onClick={() => handleDelete(obj.key)}>
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
+                                                    </td>
+                                                    <td className="file-size">{formatBytes(obj.size)}</td>
+                                                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{obj.contentType}</td>
+                                                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                                                        {new Date(obj.lastModified).toLocaleString()}
+                                                    </td>
+                                                    <td>
+                                                        <div style={{ display: 'flex', gap: 6 }}>
+                                                            <button className="btn-icon danger" title="Delete" onClick={() => handleDelete(obj.key)}>
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }
+
+                                        return rows;
+                                    })()}
                                 </tbody>
                             </table>
                         </div>
