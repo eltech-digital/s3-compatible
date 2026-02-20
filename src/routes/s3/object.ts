@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia';
 import { db } from '../../db/connection';
 import { buckets, objects, multipartUploads, multipartParts } from '../../db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sum } from 'drizzle-orm';
 import { s3Auth } from '../../middleware/s3-auth';
 import { storage } from '../../lib/storage/filesystem';
 import { xml } from '../../lib/xml/builder';
@@ -70,6 +70,16 @@ export const objectRoutes = new Elysia({ prefix: '' })
             .limit(1);
 
         if (!bucket) return s3ErrorResponse(S3Errors.NoSuchBucket(bucketName));
+
+        // Quota enforcement
+        if (bucket.maxSize > 0) {
+            const [usage] = await db.select({ totalSize: sum(objects.size) })
+                .from(objects).where(eq(objects.bucketId, bucket.id));
+            const currentSize = Number(usage?.totalSize || 0);
+            if (currentSize + bodyBuffer.length > bucket.maxSize) {
+                return s3ErrorResponse(S3Errors.EntityTooLarge());
+            }
+        }
 
         const etag = computeETag(bodyBuffer);
         const contentType = request.headers.get('content-type') || 'application/octet-stream';

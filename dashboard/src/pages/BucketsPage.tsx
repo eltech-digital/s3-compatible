@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Database, Plus, Trash2, Lock, Globe } from 'lucide-react';
+import { Database, Plus } from 'lucide-react';
 import { adminApi } from '../lib/api';
 
 interface BucketInfo {
@@ -11,14 +11,9 @@ interface BucketInfo {
     createdAt: string;
     objectCount: number;
     totalSize: number;
+    maxSize: number;
 }
 
-interface AccessKeyOption {
-    id: number;
-    accessKeyId: string;
-    displayName: string;
-    isActive: boolean;
-}
 
 function formatBytes(bytes: number): string {
     if (bytes === 0) return '0 B';
@@ -34,10 +29,10 @@ export default function BucketsPage() {
     const [showCreate, setShowCreate] = useState(false);
     const [newBucketName, setNewBucketName] = useState('');
     const [newBucketRegion, setNewBucketRegion] = useState('us-east-1');
-    const [selectedKeyId, setSelectedKeyId] = useState<number | ''>('');
-    const [availableKeys, setAvailableKeys] = useState<AccessKeyOption[]>([]);
+
     const [creating, setCreating] = useState(false);
     const [newBucketAcl, setNewBucketAcl] = useState('private');
+    const [newBucketMaxSize, setNewBucketMaxSize] = useState(0);
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
     const navigate = useNavigate();
 
@@ -56,26 +51,19 @@ export default function BucketsPage() {
 
     useEffect(() => { fetchBuckets(); }, []);
 
-    const openCreateModal = async () => {
-        setShowCreate(true);
-        try {
-            const { data } = await adminApi.getKeys();
-            const keys = (data.keys as AccessKeyOption[]).filter(k => k.isActive);
-            setAvailableKeys(keys);
-            if (keys.length > 0) setSelectedKeyId(keys[0]!.id);
-        } catch { /* ignore */ }
-    };
+
 
     const handleCreate = async () => {
-        if (!newBucketName.trim() || !selectedKeyId) return;
+        if (!newBucketName.trim()) return;
         setCreating(true);
         try {
-            await adminApi.createBucket(newBucketName.trim(), newBucketRegion, selectedKeyId as number, newBucketAcl);
+            await adminApi.createBucket(newBucketName.trim(), newBucketRegion, newBucketAcl, newBucketMaxSize);
             setShowCreate(false);
             setNewBucketName('');
             setNewBucketRegion('us-east-1');
             setNewBucketAcl('private');
-            setSelectedKeyId('');
+            setNewBucketMaxSize(0);
+
             fetchBuckets();
             showToast('Bucket created successfully');
         } catch (err: any) {
@@ -86,30 +74,7 @@ export default function BucketsPage() {
         }
     };
 
-    const handleToggleAcl = async (name: string, currentAcl: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        const newAcl = currentAcl === 'public-read' ? 'private' : 'public-read';
-        try {
-            await adminApi.updateBucketAcl(name, newAcl);
-            fetchBuckets();
-            showToast(`Bucket "${name}" set to ${newAcl}`);
-        } catch (err: any) {
-            showToast(err.response?.data?.error || 'Failed to update ACL', 'error');
-        }
-    };
 
-    const handleDelete = async (name: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!confirm(`Delete bucket "${name}"? All objects inside will be permanently deleted.`)) return;
-        try {
-            await adminApi.deleteBucket(name);
-            fetchBuckets();
-            showToast('Bucket deleted');
-        } catch (err: any) {
-            const msg = err.response?.data?.error || 'Failed to delete bucket';
-            showToast(msg, 'error');
-        }
-    };
 
     if (loading) return <div className="empty-state"><p>Loading...</p></div>;
 
@@ -124,7 +89,7 @@ export default function BucketsPage() {
                 <div className="toolbar-left">
                     <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{buckets.length} bucket{buckets.length !== 1 ? 's' : ''}</span>
                 </div>
-                <button className="btn btn-primary" onClick={openCreateModal}>
+                <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
                     <Plus size={14} /> Create Bucket
                 </button>
             </div>
@@ -153,24 +118,7 @@ export default function BucketsPage() {
                                 e.currentTarget.style.transform = 'translateY(0)';
                             }}
                         >
-                            {/* ACL toggle button */}
-                            <button
-                                className="btn-icon"
-                                title={b.acl === 'public-read' ? 'Public (click to make private)' : 'Private (click to make public)'}
-                                onClick={(e) => handleToggleAcl(b.name, b.acl, e)}
-                                style={{ position: 'absolute', top: 14, right: 44 }}
-                            >
-                                {b.acl === 'public-read' ? <Globe size={14} /> : <Lock size={14} />}
-                            </button>
-                            {/* Delete button */}
-                            <button
-                                className="btn-icon danger"
-                                title="Delete bucket"
-                                onClick={(e) => handleDelete(b.name, e)}
-                                style={{ position: 'absolute', top: 14, right: 14 }}
-                            >
-                                <Trash2 size={14} />
-                            </button>
+
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                                 <div className="stat-icon accent"><Database size={18} /></div>
@@ -198,9 +146,22 @@ export default function BucketsPage() {
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
                                     <div style={{ fontSize: 20, fontWeight: 700 }}>{formatBytes(b.totalSize)}</div>
-                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Size</div>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                        {b.maxSize > 0 ? `/ ${formatBytes(b.maxSize)}` : 'Size'}
+                                    </div>
                                 </div>
                             </div>
+                            {b.maxSize > 0 && (
+                                <div style={{ marginTop: 10, height: 4, background: 'var(--bg-secondary)', borderRadius: 2, overflow: 'hidden' }}>
+                                    <div style={{
+                                        height: '100%',
+                                        width: `${Math.min(100, (b.totalSize / b.maxSize) * 100)}%`,
+                                        background: (b.totalSize / b.maxSize) > 0.9 ? 'var(--danger, #e53935)' : 'var(--accent)',
+                                        borderRadius: 2,
+                                        transition: 'width 0.3s ease',
+                                    }} />
+                                </div>
+                            )}
                             <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-muted)' }}>
                                 Created {new Date(b.createdAt).toLocaleDateString()}
                             </div>
@@ -227,22 +188,7 @@ export default function BucketsPage() {
                                 3-63 characters, lowercase letters, numbers, dots, and hyphens only.
                             </div>
                         </div>
-                        <div className="form-group">
-                            <label>Owner (Access Key)</label>
-                            {availableKeys.length === 0 ? (
-                                <div style={{ fontSize: 13, color: 'var(--warning)', padding: '10px 14px', background: 'var(--warning-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                                    ⚠️ No active access keys. Create one in the Keys page first.
-                                </div>
-                            ) : (
-                                <select value={selectedKeyId} onChange={(e) => setSelectedKeyId(Number(e.target.value))}>
-                                    {availableKeys.map((k) => (
-                                        <option key={k.id} value={k.id}>
-                                            {k.displayName} ({k.accessKeyId})
-                                        </option>
-                                    ))}
-                                </select>
-                            )}
-                        </div>
+
                         <div className="form-group">
                             <label>Region</label>
                             <select value={newBucketRegion} onChange={(e) => setNewBucketRegion(e.target.value)}>
@@ -259,12 +205,25 @@ export default function BucketsPage() {
                                 <option value="public-read">🌐 Public Read — Anyone can read objects</option>
                             </select>
                         </div>
+                        <div className="form-group">
+                            <label>Storage Quota</label>
+                            <select value={newBucketMaxSize} onChange={(e) => setNewBucketMaxSize(Number(e.target.value))}>
+                                <option value={0}>♾️ Unlimited</option>
+                                <option value={1073741824}>1 GB</option>
+                                <option value={10737418240}>10 GB</option>
+                                <option value={107374182400}>100 GB</option>
+                                <option value={536870912000}>500 GB</option>
+                                <option value={1099511627776}>1 TB</option>
+                                <option value={5497558138880}>5 TB</option>
+                                <option value={10995116277760}>10 TB</option>
+                            </select>
+                        </div>
                         <div className="modal-actions">
                             <button className="btn btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
                             <button
                                 className="btn btn-primary"
                                 onClick={handleCreate}
-                                disabled={creating || newBucketName.length < 3 || !selectedKeyId}
+                                disabled={creating || newBucketName.length < 3}
                             >
                                 {creating ? 'Creating...' : 'Create'}
                             </button>

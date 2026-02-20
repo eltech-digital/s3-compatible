@@ -16,7 +16,7 @@ export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
         }
     })
     .post('/', async ({ body }) => {
-        const { name, region, ownerId, acl } = body as { name: string; region?: string; ownerId?: number; acl?: string };
+        const { name, region, acl, maxSize } = body as { name: string; region?: string; acl?: string; maxSize?: number };
 
         if (!name || !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(name)) {
             return new Response(JSON.stringify({ error: 'Invalid bucket name. Use 3-63 lowercase alphanumeric characters, dots, or hyphens.' }), {
@@ -34,24 +34,21 @@ export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
             });
         }
 
-        // Find owner: use provided ownerId or first access key
-        let resolvedOwnerId = ownerId;
-        if (!resolvedOwnerId) {
-            const [firstKey] = await db.select({ id: accessKeys.id }).from(accessKeys).limit(1);
-            if (!firstKey) {
-                return new Response(JSON.stringify({ error: 'No access keys exist. Create an access key first.' }), {
-                    status: 400,
-                    headers: { 'Content-Type': 'application/json' },
-                });
-            }
-            resolvedOwnerId = firstKey.id;
+        // Auto-resolve owner from first access key
+        const [firstKey] = await db.select({ id: accessKeys.id }).from(accessKeys).limit(1);
+        if (!firstKey) {
+            return new Response(JSON.stringify({ error: 'No access keys exist. Create an access key first.' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
         }
 
         await db.insert(buckets).values({
             name,
-            ownerId: resolvedOwnerId,
+            ownerId: firstKey.id,
             region: region || 'us-east-1',
             acl: acl === 'public-read' ? 'public-read' : 'private',
+            maxSize: maxSize && maxSize > 0 ? maxSize : 0,
         });
 
         await storage.createBucket(name);
@@ -92,6 +89,7 @@ export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
                 name: b.name,
                 region: b.region,
                 acl: b.acl,
+                maxSize: b.maxSize,
                 createdAt: b.createdAt,
                 objectCount: objStats?.count || 0,
                 totalSize: Number(objStats?.totalSize || 0),
@@ -99,9 +97,36 @@ export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
         }
         return { buckets: result };
     })
+    .get('/:bucket', async ({ params }) => {
+        const bucketName = params.bucket;
+        const [bucket] = await db.select().from(buckets).where(eq(buckets.name, bucketName)).limit(1);
+        if (!bucket) {
+            return new Response(JSON.stringify({ error: 'Bucket not found' }), {
+                status: 404,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+        const [objStats] = await db.select({
+            count: count(),
+            totalSize: sum(objects.size),
+        }).from(objects).where(eq(objects.bucketId, bucket.id));
+
+        return {
+            bucket: {
+                id: bucket.id,
+                name: bucket.name,
+                region: bucket.region,
+                acl: bucket.acl,
+                maxSize: bucket.maxSize,
+                createdAt: bucket.createdAt,
+                objectCount: objStats?.count || 0,
+                totalSize: Number(objStats?.totalSize || 0),
+            },
+        };
+    })
     .patch('/:bucket', async ({ params, body }) => {
         const bucketName = params.bucket;
-        const { acl } = body as { acl?: string };
+        const { acl, maxSize } = body as { acl?: string; maxSize?: number };
 
         const [bucket] = await db.select().from(buckets).where(eq(buckets.name, bucketName)).limit(1);
         if (!bucket) {
@@ -111,8 +136,15 @@ export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
             });
         }
 
+        const updates: Record<string, any> = {};
         if (acl && ['private', 'public-read'].includes(acl)) {
-            await db.update(buckets).set({ acl }).where(eq(buckets.id, bucket.id));
+            updates.acl = acl;
+        }
+        if (maxSize !== undefined) {
+            updates.maxSize = maxSize >= 0 ? maxSize : 0;
+        }
+        if (Object.keys(updates).length > 0) {
+            await db.update(buckets).set(updates).where(eq(buckets.id, bucket.id));
         }
 
         const [updated] = await db.select().from(buckets).where(eq(buckets.id, bucket.id)).limit(1);

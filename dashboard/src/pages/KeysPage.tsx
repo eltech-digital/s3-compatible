@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Copy, Check, ToggleLeft, ToggleRight, Key as KeyIcon, Shield } from 'lucide-react';
 import { adminApi } from '../lib/api';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 interface AccessKey {
     id: number;
@@ -24,6 +25,11 @@ export default function KeysPage() {
     const [createdKey, setCreatedKey] = useState<NewKey | null>(null);
     const [copied, setCopied] = useState('');
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+    const [confirmDialog, setConfirmDialog] = useState<{
+        open: boolean; title: string; message: string; confirmText: string;
+        variant: 'danger' | 'warning' | 'default'; onConfirm: () => void;
+    }>({ open: false, title: '', message: '', confirmText: 'Confirm', variant: 'default', onConfirm: () => { } });
+    const closeDialog = () => setConfirmDialog(prev => ({ ...prev, open: false }));
 
     const fetchKeys = async () => {
         try {
@@ -53,15 +59,24 @@ export default function KeysPage() {
         }
     };
 
-    const handleDelete = async (id: number) => {
-        if (!confirm('Delete this access key? This action cannot be undone.')) return;
-        try {
-            await adminApi.deleteKey(id);
-            fetchKeys();
-            showToast('Key deleted');
-        } catch {
-            showToast('Failed to delete key', 'error');
-        }
+    const handleDelete = (id: number) => {
+        setConfirmDialog({
+            open: true,
+            title: 'Delete Access Key',
+            message: 'Are you sure you want to delete this access key?\n\nAny applications using this key will lose access immediately. This action cannot be undone.',
+            confirmText: 'Delete Key',
+            variant: 'danger',
+            onConfirm: async () => {
+                closeDialog();
+                try {
+                    await adminApi.deleteKey(id);
+                    fetchKeys();
+                    showToast('Key deleted');
+                } catch {
+                    showToast('Failed to delete key', 'error');
+                }
+            },
+        });
     };
 
     const handleToggle = async (id: number) => {
@@ -205,6 +220,16 @@ export default function KeysPage() {
                     </div>
                 </div>
             )}
+
+            <ConfirmDialog
+                open={confirmDialog.open}
+                title={confirmDialog.title}
+                message={confirmDialog.message}
+                confirmText={confirmDialog.confirmText}
+                variant={confirmDialog.variant}
+                onConfirm={confirmDialog.onConfirm}
+                onCancel={closeDialog}
+            />
 
             {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
         </div>

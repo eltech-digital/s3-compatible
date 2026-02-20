@@ -28,6 +28,7 @@ export const buckets = mysqlTable('buckets', {
     ownerId: int('owner_id').notNull().references(() => accessKeys.id),
     region: varchar('region', { length: 32 }).notNull().default('us-east-1'),
     acl: varchar('acl', { length: 32 }).notNull().default('private'),
+    maxSize: bigint('max_size', { mode: 'number' }).notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => [
     uniqueIndex('idx_bucket_name').on(table.name),

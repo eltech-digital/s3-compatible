@@ -38,10 +38,11 @@ export const adminApi = {
     toggleKey: (id: number) => api.patch(`/admin/keys/${id}/toggle`),
 
     getBuckets: () => api.get('/admin/buckets'),
-    createBucket: (name: string, region?: string, ownerId?: number, acl?: string) =>
-        api.post('/admin/buckets', { name, region, ownerId, acl }),
+    getBucket: (name: string) => api.get(`/admin/buckets/${name}`),
+    createBucket: (name: string, region?: string, acl?: string, maxSize?: number) =>
+        api.post('/admin/buckets', { name, region, acl, maxSize }),
     deleteBucket: (name: string) => api.delete(`/admin/buckets/${name}`),
-    updateBucketAcl: (name: string, acl: string) => api.patch(`/admin/buckets/${name}`, { acl }),
+    updateBucket: (name: string, data: { acl?: string; maxSize?: number }) => api.patch(`/admin/buckets/${name}`, data),
     getObjects: (bucket: string, page = 1, limit = 50, prefix = '') =>
         api.get(`/admin/buckets/${bucket}/objects`, { params: { page, limit, prefix } }),
     deleteObject: (bucket: string, key: string) =>
