@@ -25,6 +25,15 @@ const app = new Elysia()
     .use(adminKeysRoutes)
     .use(adminStatsRoutes)
     .use(adminBucketsRoutes)
+    // S3 service health check (no auth required — Cyberduck probes this)
+    .head('/', () => new Response(null, { status: 200 }))
+    // WebDAV PROPFIND fallback (Cyberduck tries this too)
+    .all('/PROPFIND_FALLBACK_UNUSED', () => new Response(null, { status: 405 }))
+    .onRequest(({ request, set }) => {
+        if (request.method === 'PROPFIND') {
+            return new Response(null, { status: 405 });
+        }
+    })
     // S3-compatible routes
     // Order matters: multipart first (more specific query params), then objects, then buckets
     .use(multipartRoutes)

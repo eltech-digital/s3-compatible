@@ -1,63 +1,111 @@
-import { createHmac } from 'node:crypto';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { createHmac, createHash } from 'node:crypto';
 
-const AK = 'AK1842E865411256698A';
-const SK = 'tOKKSI3HOaf7txs1fn1Ak8pMUcJ3SyTcR9-SZgZm';
+const AK = 'AK98F89BAA9C1AF24DD8';
+const SK = 'J_0CIzeVx_Fhx7Lk4mBpeJOfHJgtBB0CBXZ2Gbfl'; // need the actual SK for this key
 
-const s3 = new S3Client({
-    endpoint: 'http://localhost:3000',
-    region: 'us-east-1',
-    credentials: { accessKeyId: AK, secretAccessKey: SK },
-    forcePathStyle: true,
-});
+// First, let's check if ListObjectsV2 returns proper XML
+console.log('=== ListObjectsV2 Response Check ===');
+const listUrl = 'http://localhost:3000/new-bucket-adaac36d?delimiter=%2F&max-keys=1000&prefix=';
 
-// 1. PUT a test object
-console.log('=== PutObject ===');
-const testBody = 'Hello S3! This is a test body for GetObject.';
-const put = await s3.send(new PutObjectCommand({
-    Bucket: 'test-upload',
-    Key: 'get-test.txt',
-    Body: testBody,
-    ContentType: 'text/plain',
-}));
-console.log('PUT Status:', put.$metadata.httpStatusCode);
-console.log('PUT ETag:', put.ETag);
+// Use the other key that we know works
+const AK2 = 'AK1842E865411256698A';
+const SK2 = 'tOKKSI3HOaf7txs1fn1Ak8pMUcJ3SyTcR9-SZgZm';
 
-// 2. GET the object via AWS SDK (V4 auth)
-console.log('\n=== GetObject (AWS SDK V4) ===');
-const get = await s3.send(new GetObjectCommand({
-    Bucket: 'test-upload',
-    Key: 'get-test.txt',
-}));
-console.log('GET Status:', get.$metadata.httpStatusCode);
-console.log('GET ContentType:', get.ContentType);
-console.log('GET ContentLength:', get.ContentLength);
-console.log('GET ETag:', get.ETag);
-const body = await get.Body?.transformToString();
-console.log('GET Body:', JSON.stringify(body));
-console.log('GET Body matches:', body === testBody ? '✅ PASS' : '❌ FAIL');
-
-// 3. GET via V2 presigned URL
-console.log('\n=== GetObject (V2 Presigned URL) ===');
+// V2 presigned for list
 const exp = Math.floor(Date.now() / 1000) + 300;
-const sts = `GET\n\n\n${exp}\n/test-upload/get-test.txt`;
-const sig = encodeURIComponent(createHmac('sha1', SK).update(sts, 'utf8').digest('base64'));
-const url = `http://localhost:3000/test-upload/get-test.txt?AWSAccessKeyId=${AK}&Expires=${exp}&Signature=${sig}`;
+const sts = `GET\n\n\n${exp}\n/new-bucket-adaac36d`;
+const sig = encodeURIComponent(createHmac('sha1', SK2).update(sts, 'utf8').digest('base64'));
+const url = `http://localhost:3000/new-bucket-adaac36d?AWSAccessKeyId=${AK2}&Expires=${exp}&Signature=${sig}&delimiter=%2F&max-keys=1000&prefix=`;
 
 const r = await fetch(url);
-const b = await r.text();
-console.log('V2 Status:', r.status);
-console.log('V2 Content-Type:', r.headers.get('content-type'));
-console.log('V2 Content-Length:', r.headers.get('content-length'));
-console.log('V2 ETag:', r.headers.get('etag'));
-console.log('V2 Body:', JSON.stringify(b));
-console.log('V2 Body matches:', b === testBody ? '✅ PASS' : '❌ FAIL');
+const body = await r.text();
+console.log('Status:', r.status);
+console.log('Content-Type:', r.headers.get('content-type'));
+console.log('Body:\n', body);
 
-// 4. HEAD object
-console.log('\n=== HeadObject ===');
-const headUrl = `http://localhost:3000/test-upload/get-test.txt?AWSAccessKeyId=${AK}&Expires=${exp}&Signature=${sig}`;
-const h = await fetch(headUrl, { method: 'HEAD' });
-console.log('HEAD Status:', h.status);
-console.log('HEAD Content-Type:', h.headers.get('content-type'));
-console.log('HEAD Content-Length:', h.headers.get('content-length'));
-console.log('HEAD ETag:', h.headers.get('etag'));
+// Check for proper XML structure
+if (body.includes('<?xml')) {
+    console.log('\n✅ Response starts with XML declaration');
+} else {
+    console.log('\n❌ Response does NOT start with XML declaration');
+}
+
+// Now generate a V4 presigned URL manually and test
+console.log('\n\n=== V4 Presigned URL Test ===');
+
+function hmacSHA256(key: Buffer | string, data: string): Buffer {
+    return createHmac('sha256', key).update(data, 'utf8').digest();
+}
+
+function sha256(data: string): string {
+    return createHash('sha256').update(data).digest('hex');
+}
+
+function uriEncode(str: string, encodeSlash = true): string {
+    let encoded = '';
+    for (const ch of str) {
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch === '_' || ch === '-' || ch === '~' || ch === '.') {
+            encoded += ch;
+        } else if (ch === '/' && !encodeSlash) {
+            encoded += '/';
+        } else {
+            const bytes = Buffer.from(ch, 'utf8');
+            for (const byte of bytes) {
+                encoded += `%${byte.toString(16).toUpperCase()}`;
+            }
+        }
+    }
+    return encoded;
+}
+
+// Generate V4 presigned URL
+const host = 'localhost:3000';
+const path = '/test-upload/get-test.txt';
+const region = 'us-east-1';
+const service = 's3';
+const now = new Date();
+const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, '');
+const datetime = dateStamp + 'T' + now.toISOString().slice(11, 19).replace(/:/g, '') + 'Z';
+const expiresSeconds = '300';
+const credential = `${AK2}/${dateStamp}/${region}/${service}/aws4_request`;
+
+const canonicalUri = uriEncode(path, false);
+const canonicalQueryParts = [
+    `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
+    `X-Amz-Credential=${uriEncode(credential)}`,
+    `X-Amz-Date=${datetime}`,
+    `X-Amz-Expires=${expiresSeconds}`,
+    `X-Amz-SignedHeaders=host`,
+].sort();
+const canonicalQueryString = canonicalQueryParts.join('&');
+
+const canonicalHeaders = `host:${host}`;
+const canonicalRequest = [
+    'GET',
+    canonicalUri,
+    canonicalQueryString,
+    canonicalHeaders,
+    '',
+    'host',
+    'UNSIGNED-PAYLOAD',
+].join('\n');
+
+console.log('Canonical Request:\n', canonicalRequest);
+
+const scope = `${dateStamp}/${region}/${service}/aws4_request`;
+const stringToSign = ['AWS4-HMAC-SHA256', datetime, scope, sha256(canonicalRequest)].join('\n');
+
+const kDate = hmacSHA256(`AWS4${SK2}`, dateStamp);
+const kRegion = hmacSHA256(kDate, region);
+const kService = hmacSHA256(kRegion, service);
+const kSigning = hmacSHA256(kService, 'aws4_request');
+const signature = hmacSHA256(kSigning, stringToSign).toString('hex');
+
+const presignedUrl = `http://${host}${path}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+console.log('\nPresigned URL:', presignedUrl);
+
+const r2 = await fetch(presignedUrl);
+const body2 = await r2.text();
+console.log('Status:', r2.status);
+console.log('Body:', JSON.stringify(body2.substring(0, 100)));
+console.log('Match:', body2.includes('Hello S3') ? '✅ PASS' : '❌ FAIL');

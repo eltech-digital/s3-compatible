@@ -10,6 +10,7 @@ import { env } from '../../config/env';
 
 export const bucketRoutes = new Elysia({ prefix: '' })
     .use(s3Auth)
+    // ListBuckets — GET /
     .get('/', async ({ s3Error, accessKeyId, ownerId }) => {
         // ListBuckets
         if (s3Error) return s3ErrorResponse(s3Error);
@@ -98,8 +99,8 @@ export const bucketRoutes = new Elysia({ prefix: '' })
 
         return new Response(null, { status: 204 });
     })
-    // ListObjectsV2 (GET /:bucket?list-type=2)
-    .get('/:bucket', async ({ params, query, s3Error, ownerId }) => {
+    // GET /:bucket — handles ListObjectsV2 + bucket sub-resources (?location, ?versioning, etc.)
+    .get('/:bucket', async ({ params, query, request, s3Error, ownerId }) => {
         if (s3Error) return s3ErrorResponse(s3Error);
         const bucketName = params.bucket;
 
@@ -109,6 +110,36 @@ export const bucketRoutes = new Elysia({ prefix: '' })
 
         if (!bucket) return s3ErrorResponse(S3Errors.NoSuchBucket(bucketName));
 
+        const url = new URL(request.url);
+
+        // GetBucketLocation — GET /:bucket?location
+        if (url.searchParams.has('location')) {
+            const body = `<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`;
+            return new Response(body, {
+                status: 200,
+                headers: { 'Content-Type': 'application/xml' },
+            });
+        }
+
+        // GetBucketVersioning — GET /:bucket?versioning
+        if (url.searchParams.has('versioning')) {
+            const body = `<?xml version="1.0" encoding="UTF-8"?><VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>`;
+            return new Response(body, {
+                status: 200,
+                headers: { 'Content-Type': 'application/xml' },
+            });
+        }
+
+        // GetBucketAcl — GET /:bucket?acl
+        if (url.searchParams.has('acl')) {
+            const body = `<?xml version="1.0" encoding="UTF-8"?><AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>${ownerId}</ID><DisplayName>owner</DisplayName></Owner><AccessControlList><Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CanonicalUser"><ID>${ownerId}</ID><DisplayName>owner</DisplayName></Grantee><Permission>FULL_CONTROL</Permission></Grant></AccessControlList></AccessControlPolicy>`;
+            return new Response(body, {
+                status: 200,
+                headers: { 'Content-Type': 'application/xml' },
+            });
+        }
+
+        // ListObjectsV2
         const prefix = (query as any)?.prefix || '';
         const delimiter = (query as any)?.delimiter || '';
         const maxKeys = Math.min(parseInt((query as any)?.['max-keys'] || '1000'), 1000);
