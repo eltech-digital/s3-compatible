@@ -250,14 +250,33 @@ export const objectRoutes = new Elysia({ prefix: '' })
 
         return new Response(null, { status: 200, headers });
     })
-    // DeleteObject — DELETE /:bucket/*
-    .delete('/:bucket/*', async ({ params, s3Error }) => {
+    // DeleteObject or AbortMultipartUpload — DELETE /:bucket/*
+    .delete('/:bucket/*', async ({ params, request, s3Error }) => {
         if (s3Error) return s3ErrorResponse(s3Error);
 
         const bucketName = params.bucket;
         const key = decodeURIComponent((params as any)['*']);
         if (!key) return s3ErrorResponse(S3Errors.InvalidArgument('Object key is required'));
 
+        const url = new URL(request.url);
+        const uploadId = url.searchParams.get('uploadId');
+
+        // AbortMultipartUpload — DELETE /:bucket/*?uploadId=X
+        if (uploadId) {
+            const [upload] = await db.select().from(multipartUploads)
+                .where(eq(multipartUploads.uploadId, uploadId))
+                .limit(1);
+
+            if (!upload) return s3ErrorResponse(S3Errors.NoSuchUpload(uploadId));
+
+            await storage.cleanupMultipart(uploadId);
+            await db.delete(multipartParts).where(eq(multipartParts.uploadId, uploadId));
+            await db.delete(multipartUploads).where(eq(multipartUploads.uploadId, uploadId));
+
+            return new Response(null, { status: 204 });
+        }
+
+        // DeleteObject
         const [bucket] = await db.select().from(buckets)
             .where(eq(buckets.name, bucketName))
             .limit(1);

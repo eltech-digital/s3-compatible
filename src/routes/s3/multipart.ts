@@ -140,24 +140,4 @@ export const multipartRoutes = new Elysia({ prefix: '' })
         }
 
         return s3ErrorResponse(S3Errors.InvalidArgument('Missing uploads or uploadId parameter'));
-    })
-    // AbortMultipartUpload — DELETE /:bucket/*?uploadId=X
-    .delete('/:bucket/*', async ({ params, request, s3Error, ownerId }) => {
-        if (s3Error) return s3ErrorResponse(s3Error);
-
-        const url = new URL(request.url);
-        const uploadId = url.searchParams.get('uploadId');
-        if (!uploadId) return;
-
-        const [upload] = await db.select().from(multipartUploads)
-            .where(eq(multipartUploads.uploadId, uploadId))
-            .limit(1);
-
-        if (!upload) return s3ErrorResponse(S3Errors.NoSuchUpload(uploadId));
-
-        await storage.cleanupMultipart(uploadId);
-        await db.delete(multipartParts).where(eq(multipartParts.uploadId, uploadId));
-        await db.delete(multipartUploads).where(eq(multipartUploads.uploadId, uploadId));
-
-        return new Response(null, { status: 204 });
     });
