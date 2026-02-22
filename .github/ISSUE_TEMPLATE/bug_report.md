@@ -12,10 +12,15 @@ A clear and concise description of the bug.
 
 ## Steps to Reproduce
 
-1. Go to '...'
-2. Click on '...'
-3. Execute '...'
-4. See error
+1. Configure server with '...'
+2. Send request / perform action: `...`
+3. Observe error
+
+<!-- Example:
+1. Create a bucket named "test-bucket"
+2. Upload an object with key containing spaces: `aws s3 cp "my file.txt" s3://test-bucket/ --endpoint-url http://localhost:3000`
+3. Server returns 500 Internal Server Error
+-->
 
 ## Expected Behavior
 
