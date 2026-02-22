@@ -4,6 +4,7 @@ import { buckets, objects, accessKeys } from '../../db/schema';
 import { eq, and, like, count, sum, desc } from 'drizzle-orm';
 import { adminAuth } from '../../middleware/admin-auth';
 import { storage } from '../../lib/storage/filesystem';
+import { generatePresignedUrl } from '../../lib/auth/signature-v4';
 
 export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
     .use(adminAuth)
@@ -229,4 +230,53 @@ export const adminBucketsRoutes = new Elysia({ prefix: '/admin/buckets' })
         await db.delete(objects).where(eq(objects.id, obj.id));
 
         return { deleted: true, key };
+    })
+    .get('/:bucket/link/*', async ({ params }) => {
+        const bucketName = params.bucket;
+        const key = (params as any)['*'];
+
+        const [bucket] = await db.select().from(buckets)
+            .where(eq(buckets.name, bucketName))
+            .limit(1);
+
+        if (!bucket) {
+            return new Response(JSON.stringify({ error: 'Bucket not found' }), {
+                status: 404,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        const host = process.env.S3_PUBLIC_HOST || `localhost:${process.env.PORT || '3000'}`;
+        const protocol = host.includes('localhost') ? 'http' : 'https';
+        const objectPath = `/${bucketName}/${key}`;
+
+        // Public bucket — direct URL
+        if (bucket.acl === 'public-read') {
+            return { url: `${protocol}://${host}${objectPath}`, expiresIn: null };
+        }
+
+        // Private bucket — presigned URL (24 hours)
+        const [firstKey] = await db.select().from(accessKeys)
+            .where(eq(accessKeys.isActive, true))
+            .limit(1);
+
+        if (!firstKey) {
+            return new Response(JSON.stringify({ error: 'No active access key available for signing' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        const expiresIn = 86400; // 24 hours
+        const url = generatePresignedUrl({
+            method: 'GET',
+            host,
+            path: objectPath,
+            accessKeyId: firstKey.accessKeyId,
+            secretAccessKey: firstKey.secretAccessKey,
+            region: bucket.region,
+            expiresIn,
+        });
+
+        return { url, expiresIn };
     });

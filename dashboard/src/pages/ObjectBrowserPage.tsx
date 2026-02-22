@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
     Folder, Trash2, Search, ChevronRight, ArrowLeft, FileText,
-    Settings, AlertTriangle
+    Settings, AlertTriangle, Link2
 } from 'lucide-react';
 import { adminApi } from '../lib/api';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -154,6 +154,17 @@ export default function ObjectBrowserPage() {
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         setPrefix(searchInput);
+    };
+
+    const handleGetLink = async (key: string) => {
+        if (!bucket) return;
+        try {
+            const { data } = await adminApi.getObjectLink(bucket, key);
+            await navigator.clipboard.writeText(data.url);
+            showToast(data.expiresIn ? 'Presigned URL copied (expires in 24h)' : 'Public URL copied');
+        } catch (err: any) {
+            showToast(err.response?.data?.error || 'Failed to get link', 'error');
+        }
     };
 
     const navigateToPrefix = (newPrefix: string) => {
@@ -366,7 +377,10 @@ export default function ObjectBrowserPage() {
                                                             <td className="file-size">{formatBytes(obj.size)}</td>
                                                             <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{obj.contentType}</td>
                                                             <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{new Date(obj.lastModified).toLocaleString()}</td>
-                                                            <td>
+                                                            <td style={{ display: 'flex', gap: 4 }}>
+                                                                <button className="btn-icon" title="Copy Link" onClick={() => handleGetLink(obj.key)}>
+                                                                    <Link2 size={14} />
+                                                                </button>
                                                                 <button className="btn-icon danger" title="Delete" onClick={() => handleDeleteObject(obj.key)}>
                                                                     <Trash2 size={14} />
                                                                 </button>

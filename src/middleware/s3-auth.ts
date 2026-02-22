@@ -136,6 +136,7 @@ export const s3Auth = new Elysia({ name: 's3-auth' })
         });
 
         if (!valid) {
+            console.warn(`[S3Auth] 403 ${request.method} ${url.pathname}${url.search} — key:${parsed.accessKeyId}`);
             return { s3Error: S3Errors.SignatureDoesNotMatch(), accessKeyId: '', ownerId: 0, bodyBuffer };
         }
 

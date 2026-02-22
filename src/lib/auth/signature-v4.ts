@@ -294,3 +294,57 @@ export function computeMultipartETag(partETags: string[], partCount: number): st
     const hash = createHash('md5').update(combined).digest('hex');
     return `${hash}-${partCount}`;
 }
+
+export function generatePresignedUrl(params: {
+    method: string;
+    host: string;
+    path: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    region: string;
+    expiresIn: number;
+}): string {
+    const { method, host, path, accessKeyId, secretAccessKey, region, expiresIn } = params;
+    const now = new Date();
+    const datetime = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const dateStamp = datetime.slice(0, 8);
+    const service = 's3';
+    const credential = `${accessKeyId}/${dateStamp}/${region}/${service}/aws4_request`;
+    const signedHeaders = 'host';
+
+    const canonicalUri = uriEncode(path, false) || '/';
+
+    const queryParams: Record<string, string> = {
+        'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+        'X-Amz-Credential': credential,
+        'X-Amz-Date': datetime,
+        'X-Amz-Expires': String(expiresIn),
+        'X-Amz-SignedHeaders': signedHeaders,
+    };
+
+    const canonicalQueryString = Object.keys(queryParams)
+        .sort()
+        .map((k) => `${uriEncode(k)}=${uriEncode(queryParams[k]!)}`)
+        .join('&');
+
+    const canonicalHeaders = `host:${host}`;
+    const payloadHash = 'UNSIGNED-PAYLOAD';
+
+    const canonicalRequest = buildCanonicalRequest(
+        method.toUpperCase(),
+        canonicalUri,
+        canonicalQueryString,
+        canonicalHeaders,
+        signedHeaders,
+        payloadHash,
+    );
+
+    const scope = `${dateStamp}/${region}/${service}/aws4_request`;
+    const stringToSign = buildStringToSign(datetime, scope, sha256(canonicalRequest));
+
+    const signingKey = getSigningKey(secretAccessKey, dateStamp, region, service);
+    const signature = hmacSHA256(signingKey, stringToSign).toString('hex');
+
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    return `${protocol}://${host}${path}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+}

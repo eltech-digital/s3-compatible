@@ -47,6 +47,8 @@ export const adminApi = {
         api.get(`/admin/buckets/${bucket}/objects`, { params: { page, limit, prefix } }),
     deleteObject: (bucket: string, key: string) =>
         api.delete(`/admin/buckets/${bucket}/objects/${key}`),
+    getObjectLink: (bucket: string, key: string) =>
+        api.get(`/admin/buckets/${bucket}/link/${key}`),
 };
 
 export default api;
