@@ -13,6 +13,12 @@ export const s3Auth = new Elysia({ name: 's3-auth' })
             headers[key.toLowerCase()] = value;
         });
 
+        // Behind a reverse proxy, the Host header gets rewritten to localhost.
+        // Use x-forwarded-host to restore the original host for signature verification.
+        if (headers['x-forwarded-host'] && !headers['x-forwarded-host'].includes(',')) {
+            headers['host'] = headers['x-forwarded-host'];
+        }
+
         const queryParams: Record<string, string> = {};
         url.searchParams.forEach((value, key) => {
             queryParams[key] = value;
@@ -128,13 +134,6 @@ export const s3Auth = new Elysia({ name: 's3-auth' })
             body: bodyBuffer,
             secretAccessKey: keyRecord.secretAccessKey,
         });
-
-        if (!valid) {
-            console.warn(`[S3Auth] Signature mismatch for ${parsed.accessKeyId} — ${request.method} ${url.pathname}`);
-            // Log canonical request details for debugging
-            console.warn(`[S3Auth] x-amz-date: ${headers['x-amz-date']}, x-amz-content-sha256: ${headers['x-amz-content-sha256']}`);
-            console.warn(`[S3Auth] SignedHeaders: ${parsed.signedHeaders.join(';')}`);
-        }
 
         if (!valid) {
             return { s3Error: S3Errors.SignatureDoesNotMatch(), accessKeyId: '', ownerId: 0, bodyBuffer };

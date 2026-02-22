@@ -54,8 +54,8 @@ export default function KeysPage() {
             setNewKeyName('');
             fetchKeys();
             showToast('Access key created');
-        } catch {
-            showToast('Failed to create key', 'error');
+        } catch (err: any) {
+            showToast(err.response?.data?.error || 'Failed to create key', 'error');
         }
     };
 
@@ -72,8 +72,8 @@ export default function KeysPage() {
                     await adminApi.deleteKey(id);
                     fetchKeys();
                     showToast('Key deleted');
-                } catch {
-                    showToast('Failed to delete key', 'error');
+                } catch (err: any) {
+                    showToast(err.response?.data?.error || 'Failed to delete key', 'error');
                 }
             },
         });
@@ -83,8 +83,8 @@ export default function KeysPage() {
         try {
             await adminApi.toggleKey(id);
             fetchKeys();
-        } catch {
-            showToast('Failed to toggle key', 'error');
+        } catch (err: any) {
+            showToast(err.response?.data?.error || 'Failed to toggle key', 'error');
         }
     };
 
