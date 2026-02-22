@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { db } from '../../db/connection';
-import { accessKeys } from '../../db/schema';
-import { eq } from 'drizzle-orm';
+import { accessKeys, buckets } from '../../db/schema';
+import { eq, sql } from 'drizzle-orm';
 import { adminAuth } from '../../middleware/admin-auth';
 import { randomBytes } from 'node:crypto';
 
@@ -72,6 +72,28 @@ export const adminKeysRoutes = new Elysia({ prefix: '/admin/keys' })
                 headers: { 'Content-Type': 'application/json' },
             });
         }
+
+        // Check if any buckets are owned by this key
+        const ownedBuckets = await db.select({ id: buckets.id }).from(buckets)
+            .where(eq(buckets.ownerId, id));
+
+        if (ownedBuckets.length > 0) {
+            // Try to reassign to another key
+            const [otherKey] = await db.select({ id: accessKeys.id }).from(accessKeys)
+                .where(sql`${accessKeys.id} != ${id}`)
+                .limit(1);
+
+            if (!otherKey) {
+                return new Response(JSON.stringify({
+                    error: 'Cannot delete the last access key while buckets exist. Delete all buckets first.',
+                }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Reassign buckets to another key
+            await db.update(buckets).set({ ownerId: otherKey.id })
+                .where(eq(buckets.ownerId, id));
+        }
+
         await db.delete(accessKeys).where(eq(accessKeys.id, id));
         return { deleted: true };
     })
