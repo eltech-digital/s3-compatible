@@ -118,6 +118,54 @@ export const xml = {
         return this.xmlDeclaration() + '\n' + builder.build(obj);
     },
 
+    listObjectsV1Response(params: {
+        name: string;
+        prefix: string;
+        delimiter?: string;
+        maxKeys: number;
+        isTruncated: boolean;
+        contents: ObjectInfo[];
+        commonPrefixes?: string[];
+        marker: string;
+        nextMarker?: string;
+    }): string {
+        const obj: any = {
+            ListBucketResult: {
+                '@_xmlns': S3_XMLNS,
+                Name: params.name,
+                Prefix: params.prefix || '',
+                Marker: params.marker || '',
+                MaxKeys: params.maxKeys,
+                IsTruncated: params.isTruncated,
+            },
+        };
+
+        if (params.delimiter) {
+            obj.ListBucketResult.Delimiter = params.delimiter;
+        }
+        if (params.nextMarker) {
+            obj.ListBucketResult.NextMarker = params.nextMarker;
+        }
+
+        if (params.contents.length > 0) {
+            obj.ListBucketResult.Contents = params.contents.map((o) => ({
+                Key: o.key,
+                LastModified: o.lastModified.toISOString(),
+                ETag: `"${o.etag}"`,
+                Size: o.size,
+                StorageClass: o.storageClass || 'STANDARD',
+            }));
+        }
+
+        if (params.commonPrefixes && params.commonPrefixes.length > 0) {
+            obj.ListBucketResult.CommonPrefixes = params.commonPrefixes.map((p) => ({
+                Prefix: p,
+            }));
+        }
+
+        return this.xmlDeclaration() + '\n' + builder.build(obj);
+    },
+
     initiateMultipartUploadResponse(bucket: string, key: string, uploadId: string): string {
         const obj = {
             InitiateMultipartUploadResult: {

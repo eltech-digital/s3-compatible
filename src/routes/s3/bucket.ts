@@ -160,11 +160,16 @@ export const bucketRoutes = new Elysia({ prefix: '' })
             });
         }
 
-        // ListObjectsV2
+        // Detect V1 vs V2: V2 uses "list-type=2", V1 uses "marker"
+        const isV2 = (query as any)?.['list-type'] === '2';
         const prefix = (query as any)?.prefix || '';
         const delimiter = (query as any)?.delimiter || '';
         const maxKeys = Math.min(parseInt((query as any)?.['max-keys'] || '1000'), 1000);
         const continuationToken = (query as any)?.['continuation-token'];
+        const marker = (query as any)?.marker || '';
+
+        // The cursor is either continuation-token (V2) or marker (V1)
+        const cursor = continuationToken || marker || '';
 
         // Query objects
         let q = db.select().from(objects)
@@ -176,12 +181,12 @@ export const bucketRoutes = new Elysia({ prefix: '' })
             .orderBy(objects.key)
             .limit(maxKeys + 1);
 
-        if (continuationToken) {
+        if (cursor) {
             q = db.select().from(objects)
                 .where(
                     prefix
-                        ? and(eq(objects.bucketId, bucket.id), like(objects.key, `${prefix}%`), sql`${objects.key} > ${continuationToken}`)
-                        : and(eq(objects.bucketId, bucket.id), sql`${objects.key} > ${continuationToken}`)
+                        ? and(eq(objects.bucketId, bucket.id), like(objects.key, `${prefix}%`), sql`${objects.key} > ${cursor}`)
+                        : and(eq(objects.bucketId, bucket.id), sql`${objects.key} > ${cursor}`)
                 )
                 .orderBy(objects.key)
                 .limit(maxKeys + 1) as any;
@@ -210,23 +215,41 @@ export const bucketRoutes = new Elysia({ prefix: '' })
             commonPrefixes = Array.from(prefixSet).sort();
         }
 
-        const body = xml.listObjectsV2Response({
-            name: bucketName,
-            prefix,
-            delimiter: delimiter || undefined,
-            maxKeys,
-            isTruncated,
-            contents: contents.map((o) => ({
-                key: o.key,
-                lastModified: o.lastModified,
-                etag: o.etag,
-                size: o.size,
-            })),
-            commonPrefixes: commonPrefixes.length > 0 ? commonPrefixes : undefined,
-            continuationToken,
-            nextContinuationToken: isTruncated ? resultObjects[resultObjects.length - 1]?.key : undefined,
-            keyCount: contents.length + commonPrefixes.length,
-        });
+        const objectEntries = contents.map((o) => ({
+            key: o.key,
+            lastModified: o.lastModified,
+            etag: o.etag,
+            size: o.size,
+        }));
+        const nextMarker = isTruncated ? resultObjects[resultObjects.length - 1]?.key : undefined;
+
+        let body: string;
+        if (isV2) {
+            body = xml.listObjectsV2Response({
+                name: bucketName,
+                prefix,
+                delimiter: delimiter || undefined,
+                maxKeys,
+                isTruncated,
+                contents: objectEntries,
+                commonPrefixes: commonPrefixes.length > 0 ? commonPrefixes : undefined,
+                continuationToken,
+                nextContinuationToken: nextMarker,
+                keyCount: contents.length + commonPrefixes.length,
+            });
+        } else {
+            body = xml.listObjectsV1Response({
+                name: bucketName,
+                prefix,
+                delimiter: delimiter || undefined,
+                maxKeys,
+                isTruncated,
+                contents: objectEntries,
+                commonPrefixes: commonPrefixes.length > 0 ? commonPrefixes : undefined,
+                marker,
+                nextMarker,
+            });
+        }
 
         return new Response(body, {
             status: 200,
