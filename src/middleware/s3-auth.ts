@@ -13,10 +13,11 @@ export const s3Auth = new Elysia({ name: 's3-auth' })
             headers[key.toLowerCase()] = value;
         });
 
-        // Behind a reverse proxy, the Host header gets rewritten to localhost.
-        // Use x-forwarded-host to restore the original host for signature verification.
-        if (headers['x-forwarded-host'] && !headers['x-forwarded-host'].includes(',')) {
-            headers['host'] = headers['x-forwarded-host'];
+        // Behind reverse proxy (Nginx/Cloudflare), Host gets rewritten to localhost.
+        // Restore original host from x-forwarded-host for correct signature verification.
+        if (headers['x-forwarded-host']) {
+            const fwdHost = headers['x-forwarded-host'].split(',')[0]!.trim();
+            headers['host'] = fwdHost;
         }
 
         const queryParams: Record<string, string> = {};
@@ -25,11 +26,16 @@ export const s3Auth = new Elysia({ name: 's3-auth' })
         });
 
         // Read body once upfront so handlers can reuse it
+        // Only read body for methods that have a request body
         let bodyBuffer: Buffer;
-        try {
-            bodyBuffer = Buffer.from(await request.arrayBuffer());
-        } catch {
+        if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'DELETE') {
             bodyBuffer = Buffer.alloc(0);
+        } else {
+            try {
+                bodyBuffer = Buffer.from(await request.arrayBuffer());
+            } catch {
+                bodyBuffer = Buffer.alloc(0);
+            }
         }
 
         // Check for V2 presigned URL (AWSAccessKeyId + Expires + Signature)
@@ -136,7 +142,6 @@ export const s3Auth = new Elysia({ name: 's3-auth' })
         });
 
         if (!valid) {
-            console.warn(`[S3Auth] 403 ${request.method} ${url.pathname}${url.search} — key:${parsed.accessKeyId}`);
             return { s3Error: S3Errors.SignatureDoesNotMatch(), accessKeyId: '', ownerId: 0, bodyBuffer };
         }
 

@@ -130,37 +130,40 @@ export function verifySignature(params: SignatureV4Params): boolean {
     const { date, region, service, signedHeaders, signature } = parsed;
     const datetime = headers['x-amz-date'] || '';
 
-    // Build canonical headers
-    const canonicalHeaders = signedHeaders
-        .map((h) => `${h.toLowerCase()}:${(headers[h] || headers[h.toLowerCase()] || '').trim()}`)
-        .join('\n');
-
     const signedHeadersStr = signedHeaders.join(';');
-
-    // Payload hash
-    const payloadHash = headers['x-amz-content-sha256'] || sha256(body);
-
-    // Build canonical request
     const canonicalUri = getCanonicalUri(path);
     const canonicalQueryString = getCanonicalQueryString(query);
-    const canonicalRequest = buildCanonicalRequest(
-        method.toUpperCase(),
-        canonicalUri,
-        canonicalQueryString,
-        canonicalHeaders,
-        signedHeadersStr,
-        payloadHash,
-    );
-
-    // Build string to sign
     const scope = `${date}/${region}/${service}/aws4_request`;
-    const stringToSign = buildStringToSign(datetime, scope, sha256(canonicalRequest));
-
-    // Compute expected signature
     const signingKey = getSigningKey(secretAccessKey, date, region, service);
-    const expectedSignature = hmacSHA256(signingKey, stringToSign).toString('hex');
 
-    return safeCompare(expectedSignature, signature);
+    // Collect payload hash candidates — intermediaries (Cloudflare, CDNs) may modify
+    // x-amz-content-sha256 between client signing and server receipt.
+    const receivedHash = headers['x-amz-content-sha256'] || sha256(body);
+    const EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+    const candidates = new Set([receivedHash, 'UNSIGNED-PAYLOAD', EMPTY_HASH]);
+
+    for (const candidateHash of candidates) {
+        // Rebuild canonical headers with this payload hash candidate
+        const canonicalHeaders = signedHeaders
+            .map((h) => {
+                const key = h.toLowerCase();
+                if (key === 'x-amz-content-sha256') return `${key}:${candidateHash}`;
+                return `${key}:${(headers[h] || headers[key] || '').trim()}`;
+            })
+            .join('\n');
+
+        const canonicalRequest = buildCanonicalRequest(
+            method.toUpperCase(), canonicalUri, canonicalQueryString,
+            canonicalHeaders, signedHeadersStr, candidateHash,
+        );
+
+        const stringToSign = buildStringToSign(datetime, scope, sha256(canonicalRequest));
+        const expectedSignature = hmacSHA256(signingKey, stringToSign).toString('hex');
+
+        if (safeCompare(expectedSignature, signature)) return true;
+    }
+
+    return false;
 }
 
 export function verifyPresignedUrl(params: {
